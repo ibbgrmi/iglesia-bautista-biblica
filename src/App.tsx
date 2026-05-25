@@ -22,25 +22,21 @@ export default function App() {
     <>
       <ScrollToTop />
       <Routes>
-        {/* Admin routes stay outside Layout (clean fullscreen) */}
+        {/* Admin routes — clean fullscreen, no Layout */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/admin" element={<AdminPage />} />
 
-        {/* Public routes share the Layout (nav + footer) */}
-        <Route path="*" element={
-          <Layout>
-            <Routes>
-              <Route path="/"           element={<HomePage />} />
-              <Route path="/proposito"  element={<PropositoPage />} />
-              <Route path="/mision"     element={<MisionPage />} />
-              <Route path="/servicios"  element={<ServiciosPage />} />
-              <Route path="/calendario" element={<CalendarioPage />} />
-              <Route path="/salvacion"  element={<SalvacionPage />} />
-              <Route path="/contacto"   element={<ContactoPage />} />
-              <Route path="*"           element={<HomePage />} />
-            </Routes>
-          </Layout>
-        } />
+        {/* Public routes — share the Layout (nav + footer) via Outlet */}
+        <Route element={<Layout />}>
+          <Route path="/"           element={<HomePage />} />
+          <Route path="/proposito"  element={<PropositoPage />} />
+          <Route path="/mision"     element={<MisionPage />} />
+          <Route path="/servicios"  element={<ServiciosPage />} />
+          <Route path="/calendario" element={<CalendarioPage />} />
+          <Route path="/salvacion"  element={<SalvacionPage />} />
+          <Route path="/contacto"   element={<ContactoPage />} />
+          <Route path="*"           element={<HomePage />} />
+        </Route>
       </Routes>
     </>
   );

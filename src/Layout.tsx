@@ -1,5 +1,5 @@
-import { ReactNode, useState, useEffect } from 'react';
-import { Link, NavLink, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 
 const NAV = [
   { to: '/',           label: 'Inicio' },
@@ -11,7 +11,7 @@ const NAV = [
   { to: '/contacto',   label: 'Contacto' },
 ];
 
-export default function Layout({ children }: { children: ReactNode }) {
+export default function Layout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const location = useLocation();
 
@@ -115,7 +115,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       )}
 
       {/* Page content */}
-      <main className="flex-1">{children}</main>
+      <main className="flex-1"><Outlet /></main>
 
       {/* Footer */}
       <footer className="bg-navy-950 border-t border-gold-400/15 mt-16">
