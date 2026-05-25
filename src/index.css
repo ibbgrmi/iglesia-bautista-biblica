@@ -16,3 +16,8 @@
 @layer utilities {
   .verse { font-family: 'Cormorant Garamond', serif; font-style: italic; }
 }
+
+@keyframes glow {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 0.85; transform: scale(1.04); }
+}
