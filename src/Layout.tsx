@@ -152,6 +152,8 @@ export default function Layout() {
         </div>
         <div className="border-t border-gold-400/10 py-5 text-center text-gray-500 text-xs">
           © {new Date().getFullYear()} Iglesia Bautista Bíblica · Grand Rapids, MI
+          <span className="mx-2 text-gray-700">·</span>
+          <Link to="/login" className="text-gray-500 hover:text-gold-300 transition">Acceso administrador</Link>
         </div>
       </footer>
     </div>
