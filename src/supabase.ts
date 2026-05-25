@@ -1,0 +1,105 @@
+// Thin Supabase REST + Auth client — no npm SDK dependency.
+// Talks directly to PostgREST and the Supabase Auth HTTP API.
+// Same pattern as Joining8384/preflight107-website.
+
+export const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL as string;
+export const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON as string;
+
+if (!SUPABASE_URL || !SUPABASE_ANON) {
+  console.error(
+    'Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON. ' +
+    'Copy .env.example to .env.local and fill them in for local dev.'
+  );
+}
+
+export interface SupabaseSession {
+  access_token:  string;
+  refresh_token: string;
+  expires_at:    number;
+  user: { id: string; email: string };
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+function authHeaders(extra: Record<string, string> = {}) {
+  return { 'Content-Type': 'application/json', apikey: SUPABASE_ANON, ...extra };
+}
+
+function restHeaders(accessToken?: string) {
+  return {
+    apikey:         SUPABASE_ANON,
+    Authorization:  `Bearer ${accessToken || SUPABASE_ANON}`,
+    'Content-Type': 'application/json',
+    Prefer:         'return=representation',
+  };
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+export async function signIn(email: string, password: string): Promise<SupabaseSession> {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ email, password }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error_description || json.msg || 'Sign-in failed');
+  return json;
+}
+
+export async function signOut(accessToken: string): Promise<void> {
+  await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+    method: 'POST',
+    headers: authHeaders({ Authorization: `Bearer ${accessToken}` }),
+  });
+}
+
+export async function refreshSession(refreshToken: string): Promise<SupabaseSession> {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error_description || json.msg || 'Refresh failed');
+  return json;
+}
+
+// ── REST (PostgREST) ──────────────────────────────────────────────────────────
+export async function dbSelect<T = unknown>(table: string, query = '', accessToken?: string): Promise<T[]> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
+    headers: restHeaders(accessToken),
+  });
+  if (!res.ok) throw new Error(`${table} select: HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function dbInsert<T = unknown>(table: string, row: object, accessToken?: string): Promise<T> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    method: 'POST',
+    headers: restHeaders(accessToken),
+    body: JSON.stringify(row),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`${table} insert: HTTP ${res.status} — ${err}`);
+  }
+  const json = await res.json();
+  return Array.isArray(json) ? json[0] : json;
+}
+
+export async function dbUpdate<T = unknown>(table: string, query: string, patch: object, accessToken: string): Promise<T[]> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
+    method: 'PATCH',
+    headers: restHeaders(accessToken),
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`${table} update: HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function dbDelete(table: string, query: string, accessToken: string): Promise<void> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
+    method: 'DELETE',
+    headers: restHeaders(accessToken),
+  });
+  if (!res.ok) throw new Error(`${table} delete: HTTP ${res.status}`);
+}
