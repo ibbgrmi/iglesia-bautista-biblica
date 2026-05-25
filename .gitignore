@@ -6,6 +6,9 @@ node_modules
 dist
 dist-ssr
 *.local
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
 
 # Local env (.env.production is committed; .env.local is for local-only overrides)
 .env
