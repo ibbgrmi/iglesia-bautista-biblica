@@ -48,8 +48,8 @@ export default function Layout() {
               className="h-12 sm:h-14 w-auto"
             />
             <div className="hidden md:block leading-tight">
-              <div className="font-serif text-gold-300 text-lg group-hover:text-gold-200 transition">Iglesia Bautista Bíblica</div>
-              <div className="text-gold-400/60 text-xs tracking-wide">Grand Rapids · Michigan</div>
+              <div className="font-serif text-gold-300 text-lg group-hover:text-gold-200 transition whitespace-nowrap">Iglesia Bautista Bíblica</div>
+              <div className="text-gold-400/60 text-xs tracking-wide whitespace-nowrap">Grand Rapids · Michigan</div>
             </div>
           </Link>
 
