@@ -13,23 +13,23 @@ export default function PropositoPage() {
 
         <Verse
           text="Jesús le dijo: Amarás al Señor tu Dios con todo tu corazón, y con toda tu alma, y con toda tu mente. Este es el primero y grande mandamiento. Y el segundo es semejante: Amarás a tu prójimo como a ti mismo. De estos dos mandamientos depende toda la ley y los profetas."
-          ref="Mateo 22:37-40"
+          cite="Mateo 22:37-40"
         />
 
         <Verse
           text="Y Jesús se acercó y les habló diciendo: Toda potestad me es dada en el cielo y en la tierra. Por tanto, id, y haced discípulos a todas las naciones, bautizándolos en el nombre del Padre, y del Hijo, y del Espíritu Santo; enseñándoles que guarden todas las cosas que os he mandado; y he aquí yo estoy con vosotros todos los días, hasta el fin del mundo. Amén."
-          ref="Mateo 28:18-20"
+          cite="Mateo 28:18-20"
         />
       </div>
     </div>
   );
 }
 
-function Verse({ text, ref }: { text: string; ref: string }) {
+function Verse({ text, cite }: { text: string; cite: string }) {
   return (
     <div className="border-l-2 border-gold-400/40 pl-5">
       <p className="verse text-gray-200 text-lg leading-relaxed">"{text}"</p>
-      <p className="text-gold-400/80 text-sm mt-2">— {ref} —</p>
+      <p className="text-gold-400/80 text-sm mt-2">— {cite} —</p>
     </div>
   );
 }

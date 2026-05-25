@@ -18,25 +18,25 @@ export default function SalvacionPage() {
           n={1}
           title="Todos hemos pecado"
           verse="Por cuanto todos pecaron, y están destituidos de la gloria de Dios."
-          ref="Romanos 3:23"
+          cite="Romanos 3:23"
         />
         <PlanStep
           n={2}
           title="El pecado tiene consecuencias"
           verse="Porque la paga del pecado es muerte, mas la dádiva de Dios es vida eterna en Cristo Jesús Señor nuestro."
-          ref="Romanos 6:23"
+          cite="Romanos 6:23"
         />
         <PlanStep
           n={3}
           title="Dios te ama"
           verse="Porque de tal manera amó Dios al mundo, que ha dado a su Hijo unigénito, para que todo aquel que en él cree, no se pierda, mas tenga vida eterna."
-          ref="Juan 3:16"
+          cite="Juan 3:16"
         />
         <PlanStep
           n={4}
           title="Jesús es el único camino"
           verse="Jesús le dijo: Yo soy el camino, y la verdad, y la vida; nadie viene al Padre, sino por mí."
-          ref="Juan 14:6"
+          cite="Juan 14:6"
         />
       </div>
 
@@ -65,7 +65,7 @@ export default function SalvacionPage() {
   );
 }
 
-function PlanStep({ n, title, verse, ref }: { n: number; title: string; verse: string; ref: string }) {
+function PlanStep({ n, title, verse, cite }: { n: number; title: string; verse: string; cite: string }) {
   return (
     <article className="rounded-xl p-6 bg-navy-800/40 border border-gold-400/15">
       <div className="flex items-baseline gap-3 mb-2">
@@ -73,7 +73,7 @@ function PlanStep({ n, title, verse, ref }: { n: number; title: string; verse: s
         <h3 className="font-serif text-xl text-gold-300">{title}</h3>
       </div>
       <p className="verse text-gray-200 text-lg leading-relaxed mt-2">"{verse}"</p>
-      <p className="text-gold-400/80 text-sm mt-2">— {ref} —</p>
+      <p className="text-gold-400/80 text-sm mt-2">— {cite} —</p>
     </article>
   );
 }
