@@ -6,6 +6,8 @@ import PropositoPage from './PropositoPage';
 import MisionPage from './MisionPage';
 import ServiciosPage from './ServiciosPage';
 import CalendarioPage from './CalendarioPage';
+import SermonesPage from './SermonesPage';
+import EscuelaDominicalPage from './EscuelaDominicalPage';
 import SalvacionPage from './SalvacionPage';
 import ContactoPage from './ContactoPage';
 import LoginPage from './LoginPage';
@@ -32,8 +34,10 @@ export default function App() {
           <Route path="/proposito"  element={<PropositoPage />} />
           <Route path="/mision"     element={<MisionPage />} />
           <Route path="/servicios"  element={<ServiciosPage />} />
-          <Route path="/calendario" element={<CalendarioPage />} />
-          <Route path="/salvacion"  element={<SalvacionPage />} />
+          <Route path="/calendario"        element={<CalendarioPage />} />
+          <Route path="/sermones"          element={<SermonesPage />} />
+          <Route path="/escuela-dominical" element={<EscuelaDominicalPage />} />
+          <Route path="/salvacion"         element={<SalvacionPage />} />
           <Route path="/contacto"   element={<ContactoPage />} />
           <Route path="*"           element={<HomePage />} />
         </Route>
