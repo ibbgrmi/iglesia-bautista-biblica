@@ -1,7 +1,8 @@
-import { useLang } from './i18n';
+import { useLang, usePageTitle } from './i18n';
 
 export default function PropositoPage() {
   const { t } = useLang();
+  usePageTitle('nav.purpose');
   return (
     <div className="max-w-3xl mx-auto px-4 pt-10 sm:pt-16">
       <p className="text-xs uppercase tracking-[0.25em] text-gold-400/80 mb-2 text-center">{t('common.aboutUs')}</p>

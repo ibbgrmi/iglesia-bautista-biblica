@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, FormEvent } from 'react';
 import { dbInsert, dbRpc, dbSelect } from './supabase';
-import { useLang } from './i18n';
+import { useLang, usePageTitle } from './i18n';
 
 // Per-browser anti-spam thresholds.
 const SUBMIT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
@@ -14,6 +14,7 @@ const SUBMIT_LOG_KEY = 'ibb.salvacion.submit-log';
 const LAST_VISIT_KEY = 'ibb.salvacion.last-visit-ts';
 
 export default function SalvacionPage() {
+  usePageTitle('nav.salvation');
   useEffect(() => {
     const last = parseInt(localStorage.getItem(LAST_VISIT_KEY) || '0');
     if (Date.now() - last > VISIT_COOLDOWN_MS) {

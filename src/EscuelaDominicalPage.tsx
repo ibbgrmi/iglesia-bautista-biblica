@@ -1,10 +1,10 @@
-import { useLang } from './i18n';
+import { useLang, usePageTitle } from './i18n';
 
-// PDFs currently live in the old ibbgrmi/iglesia-website repo, served via
-// the custom domain. When we swap the domain to this repo we'll need to
-// migrate the files (Supabase Storage or repo /public/). For now linking
-// preserves the daily-reading feature without disruption.
-const PDF_BASE = 'https://iglesia-bautista-biblica.org/app/escuela-dominical';
+// PDFs still live in the legacy ibbgrmi/iglesia-website repo. We serve them
+// through the jsDelivr CDN (proper Content-Type for PDFs, no rate limits,
+// cached aggressively) so the domain swap on this repo doesn't break them.
+// TODO: migrate PDFs into this repo's public/ or Supabase Storage.
+const PDF_BASE = 'https://cdn.jsdelivr.net/gh/ibbgrmi/iglesia-website@main/app/escuela-dominical';
 
 const READINGS: { key: string; file: string }[] = [
   { key: 'school.day.sunday',    file: 'lectura-domingo.pdf.pdf'   },
@@ -18,6 +18,7 @@ const READINGS: { key: string; file: string }[] = [
 
 export default function EscuelaDominicalPage() {
   const { t } = useLang();
+  usePageTitle('nav.sundaySchool');
   return (
     <div className="max-w-3xl mx-auto px-4 pt-10 sm:pt-16">
       <p className="text-xs uppercase tracking-[0.25em] text-gold-400/80 mb-2 text-center">{t('school.subtitle')}</p>

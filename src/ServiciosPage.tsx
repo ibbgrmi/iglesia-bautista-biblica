@@ -1,7 +1,9 @@
-import { useLang } from './i18n';
+import { useLang, usePageTitle } from './i18n';
+import { MapLink } from './MapLink';
 
 export default function ServiciosPage() {
   const { t } = useLang();
+  usePageTitle('nav.services');
   return (
     <div className="max-w-4xl mx-auto px-4 pt-10 sm:pt-16">
       <p className="text-xs uppercase tracking-[0.25em] text-gold-400/80 mb-2 text-center">{t('home.services.label')}</p>
@@ -22,13 +24,12 @@ export default function ServiciosPage() {
 
       <div className="mt-10 text-center">
         <h2 className="font-serif text-2xl text-gold-300 mb-3">{t('svc.directions')}</h2>
-        <a
-          href="https://maps.google.com/?q=1273+Lamont+Ave+NW+Grand+Rapids+MI+49504"
-          target="_blank" rel="noopener noreferrer"
+        <MapLink
+          query="Iglesia Bautista Bíblica, 1273 Lamont Ave NW, Grand Rapids, MI 49504"
           className="inline-flex items-center gap-2 px-6 py-3 rounded-lg border border-gold-400/40 text-gold-300 hover:bg-gold-400/10 transition"
         >
           📍 1273 Lamont Ave NW, Grand Rapids, MI 49504
-        </a>
+        </MapLink>
       </div>
     </div>
   );

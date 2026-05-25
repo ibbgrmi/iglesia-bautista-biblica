@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom';
-import { useLang } from './i18n';
+import { useLang, usePageTitle } from './i18n';
+import { MapLink } from './MapLink';
 
 export default function HomePage() {
   const { t } = useLang();
+  usePageTitle(null);
   return (
     <div className="space-y-20">
       {/* Hero */}
@@ -11,7 +13,7 @@ export default function HomePage() {
           <img
             src={`${import.meta.env.BASE_URL}assets/logo.png`}
             alt={t('home.hero.title')}
-            className="mx-auto h-40 sm:h-56 w-auto mb-6 drop-shadow-[0_0_40px_rgba(238,196,106,0.25)]"
+            className="mx-auto h-72 sm:h-[28rem] w-auto mb-6 drop-shadow-[0_0_60px_rgba(238,196,106,0.3)]"
           />
           <h1 className="font-serif text-4xl sm:text-6xl md:text-7xl text-gold-300 leading-tight mb-3">
             {t('home.hero.title')}
@@ -26,7 +28,7 @@ export default function HomePage() {
 
           <div className="mt-10 flex flex-col sm:flex-row gap-3 justify-center">
             <Link
-              to="/salvacion"
+              to="/plandesalvacion"
               className="px-7 py-3.5 rounded-lg bg-gradient-to-b from-gold-300 to-gold-500 text-navy-900 font-semibold hover:brightness-110 transition shadow-lg shadow-gold-400/20"
             >
               {t('home.cta.salvation')}
@@ -120,7 +122,7 @@ export default function HomePage() {
             {t('home.salv.body')}
           </p>
           <Link
-            to="/salvacion"
+            to="/plandesalvacion"
             className="inline-block px-8 py-3.5 rounded-lg bg-gradient-to-b from-gold-300 to-gold-500 text-navy-900 font-semibold hover:brightness-110 transition shadow-lg shadow-gold-400/20 relative"
           >
             {t('home.salv.cta')}
@@ -135,7 +137,7 @@ export default function HomePage() {
             icon="📍"
             title={t('home.info.visit')}
             lines={[t('common.address.line1'), t('common.address.line2')]}
-            href="https://maps.google.com/?q=1273+Lamont+Ave+NW+Grand+Rapids+MI+49504"
+            mapQuery="Iglesia Bautista Bíblica, 1273 Lamont Ave NW, Grand Rapids, MI 49504"
           />
           <InfoCard
             icon="📞"
@@ -190,8 +192,8 @@ function ValueCard({ label, title, body, verse, verseRef, link, readMore }: {
   );
 }
 
-function InfoCard({ icon, title, lines, href }: {
-  icon: string; title: string; lines: string[]; href?: string;
+function InfoCard({ icon, title, lines, href, mapQuery }: {
+  icon: string; title: string; lines: string[]; href?: string; mapQuery?: string;
 }) {
   const inner = (
     <>
@@ -203,6 +205,13 @@ function InfoCard({ icon, title, lines, href }: {
     </>
   );
   const base = 'rounded-xl p-6 bg-navy-800/40 border border-gold-400/15 text-center';
+  if (mapQuery) {
+    return (
+      <MapLink query={mapQuery} className={`${base} block hover:border-gold-400/30 transition`}>
+        {inner}
+      </MapLink>
+    );
+  }
   return href ? (
     <a href={href} target="_blank" rel="noopener noreferrer" className={`${base} block hover:border-gold-400/30 transition`}>
       {inner}

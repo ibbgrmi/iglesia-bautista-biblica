@@ -7,9 +7,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [react()],
-    // GitHub Pages serves at /<repo-name>/ until we point a custom domain at it.
-    // After CNAME swap, set VITE_BASE_PATH=/ in .env.production and redeploy.
-    base: env.VITE_BASE_PATH || '/iglesia-bautista-biblica/',
+    // Custom domain (iglesia-bautista-biblica.org) is wired via public/CNAME,
+    // so we serve from root. Env override exists in case we ever need to fall
+    // back to the project path on github.io.
+    base: env.VITE_BASE_PATH || '/',
     build: {
       outDir: 'dist',
       sourcemap: false,

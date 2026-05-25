@@ -1,4 +1,4 @@
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
 import Layout from './Layout';
 import HomePage from './HomePage';
@@ -30,16 +30,32 @@ export default function App() {
 
         {/* Public routes — share the Layout (nav + footer) via Outlet */}
         <Route element={<Layout />}>
-          <Route path="/"           element={<HomePage />} />
-          <Route path="/proposito"  element={<PropositoPage />} />
-          <Route path="/mision"     element={<MisionPage />} />
-          <Route path="/servicios"  element={<ServiciosPage />} />
+          <Route path="/"                  element={<HomePage />} />
+          <Route path="/proposito"         element={<PropositoPage />} />
+          <Route path="/mision"            element={<MisionPage />} />
+          <Route path="/servicios"         element={<ServiciosPage />} />
           <Route path="/calendario"        element={<CalendarioPage />} />
           <Route path="/sermones"          element={<SermonesPage />} />
           <Route path="/escuela-dominical" element={<EscuelaDominicalPage />} />
-          <Route path="/salvacion"         element={<SalvacionPage />} />
-          <Route path="/contacto"   element={<ContactoPage />} />
-          <Route path="*"           element={<HomePage />} />
+          <Route path="/plandesalvacion"   element={<SalvacionPage />} />
+          <Route path="/contacto"          element={<ContactoPage />} />
+
+          {/* Backwards-compat redirects.
+              - /salvacion was the previous canonical path; QR codes still
+                point at it.
+              - The legacy hand-coded site at iglesia-website used .html paths
+                that may still be in search results / on printed materials. */}
+          <Route path="/salvacion"             element={<Navigate to="/plandesalvacion" replace />} />
+          <Route path="/index.html"            element={<Navigate to="/"                 replace />} />
+          <Route path="/index-en.html"         element={<Navigate to="/"                 replace />} />
+          <Route path="/proposito.html"        element={<Navigate to="/proposito"        replace />} />
+          <Route path="/mision.html"           element={<Navigate to="/mision"           replace />} />
+          <Route path="/servicios.html"        element={<Navigate to="/servicios"        replace />} />
+          <Route path="/calendario.html"       element={<Navigate to="/calendario"       replace />} />
+          <Route path="/sermones.html"         element={<Navigate to="/sermones"         replace />} />
+          <Route path="/contacto.html"         element={<Navigate to="/contacto"         replace />} />
+
+          <Route path="*" element={<HomePage />} />
         </Route>
       </Routes>
     </>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { dbSelect } from './supabase';
-import { useLang } from './i18n';
+import { useLang, usePageTitle } from './i18n';
 
 interface CalendarEvent {
   id: string;
@@ -17,6 +17,7 @@ const TZ = 'America/New_York';
 
 export default function CalendarioPage() {
   const { lang } = useLang();
+  usePageTitle('nav.calendar');
   const [events, setEvents] = useState<CalendarEvent[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 

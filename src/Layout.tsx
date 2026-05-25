@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useLang, Lang } from './i18n';
+import { MapLink } from './MapLink';
 
 interface NavItem { to: string; key: string }
 
@@ -12,7 +13,7 @@ const NAV: NavItem[] = [
   { to: '/calendario',         key: 'nav.calendar' },
   { to: '/sermones',           key: 'nav.sermons' },
   { to: '/escuela-dominical',  key: 'nav.sundaySchool' },
-  { to: '/salvacion',          key: 'nav.salvation' },
+  { to: '/plandesalvacion',    key: 'nav.salvation' },
   { to: '/contacto',           key: 'nav.contact' },
 ];
 
@@ -134,13 +135,12 @@ export default function Layout() {
 
             <div>
               <h3 className="font-semibold text-gold-300 mb-3">{t('footer.visit')}</h3>
-              <a
-                href="https://maps.google.com/?q=1273+Lamont+Ave+NW+Grand+Rapids+MI+49504"
-                target="_blank" rel="noopener"
+              <MapLink
+                query="Iglesia Bautista Bíblica, 1273 Lamont Ave NW, Grand Rapids, MI 49504"
                 className="text-gray-300 hover:text-gold-300 transition block text-sm leading-relaxed"
               >
                 {t('common.address.line1')}<br />{t('common.address.line2')}
-              </a>
+              </MapLink>
               <p className="text-gold-300 text-sm mt-3 font-semibold">{t('footer.serviceReminder')}</p>
             </div>
 

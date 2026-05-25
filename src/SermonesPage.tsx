@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLang } from './i18n';
+import { useLang, usePageTitle } from './i18n';
 import { dbSelect } from './supabase';
 
 interface Sermon {
@@ -20,8 +20,19 @@ const PLATFORMS = [
   { name: 'Amazon Music',   url: 'https://music.amazon.com/podcasts/2dd0cceb-d057-4cf5-b690-7634ca1edf4d/iglesia-bautista-b%C3%ADblica', color: 'from-blue-500/20 to-blue-600/5 border-blue-400/30' },
 ];
 
+// Extract a YouTube video ID from any common URL form (watch?v=, youtu.be,
+// embed/, shorts/, live/). Returns null if it doesn't look like YouTube.
+function youtubeId(url: string): string | null {
+  if (!url) return null;
+  const m = url.match(
+    /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
+  );
+  return m ? m[1] : null;
+}
+
 export default function SermonesPage() {
   const { t, lang } = useLang();
+  usePageTitle('nav.sermons');
   const [sermons, setSermons] = useState<Sermon[] | null>(null);
 
   useEffect(() => {
@@ -42,27 +53,53 @@ export default function SermonesPage() {
         <p className="text-gold-400/80 text-sm mt-3">{t('sermons.verseRef')}</p>
       </div>
 
-      {/* Curated list */}
+      {/* Curated list with inline YouTube embeds */}
       {sermons && sermons.length > 0 && (
-        <div className="mb-10 space-y-3">
-          {sermons.map((s) => (
-            <article key={s.id} className="rounded-xl bg-navy-800/40 border border-gold-400/15 p-5 hover:border-gold-400/30 transition">
-              <div className="flex items-baseline justify-between gap-3 mb-2 flex-wrap">
-                <h3 className="font-serif text-xl text-gold-300">{s.title}</h3>
-                <span className="text-xs text-gold-400/70 whitespace-nowrap">
-                  {new Date(s.preached_at + 'T12:00:00').toLocaleDateString(localeTag, { dateStyle: 'long' })}
-                </span>
-              </div>
-              <p className="text-gray-400 text-sm mb-2">
-                {[s.speaker, s.scripture].filter(Boolean).join(' · ')}
-              </p>
-              {s.description && <p className="text-gray-300 text-sm mb-3 leading-relaxed">{s.description}</p>}
-              <div className="flex gap-3 text-sm">
-                {s.video_url && <a href={s.video_url} target="_blank" rel="noopener noreferrer" className="text-gold-300 hover:text-gold-200 underline">▶ {t('sermons.watch')}</a>}
-                {s.audio_url && <a href={s.audio_url} target="_blank" rel="noopener noreferrer" className="text-gold-300 hover:text-gold-200 underline">🎧 {t('sermons.listen')}</a>}
-              </div>
-            </article>
-          ))}
+        <div className="mb-10 space-y-6">
+          {sermons.map((s) => {
+            const ytId = youtubeId(s.video_url);
+            return (
+              <article key={s.id} className="rounded-xl bg-navy-800/40 border border-gold-400/15 overflow-hidden hover:border-gold-400/30 transition">
+                {ytId && (
+                  <div className="aspect-video bg-black">
+                    <iframe
+                      className="w-full h-full"
+                      src={`https://www.youtube-nocookie.com/embed/${ytId}`}
+                      title={s.title}
+                      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                      loading="lazy"
+                      referrerPolicy="strict-origin-when-cross-origin"
+                    />
+                  </div>
+                )}
+                <div className="p-5">
+                  <div className="flex items-baseline justify-between gap-3 mb-2 flex-wrap">
+                    <h3 className="font-serif text-xl text-gold-300">{s.title}</h3>
+                    <span className="text-xs text-gold-400/70 whitespace-nowrap">
+                      {new Date(s.preached_at + 'T12:00:00').toLocaleDateString(localeTag, { dateStyle: 'long' })}
+                    </span>
+                  </div>
+                  <p className="text-gray-400 text-sm mb-2">
+                    {[s.speaker, s.scripture].filter(Boolean).join(' · ')}
+                  </p>
+                  {s.description && <p className="text-gray-300 text-sm mb-3 leading-relaxed">{s.description}</p>}
+                  <div className="flex gap-3 text-sm">
+                    {s.video_url && !ytId && (
+                      <a href={s.video_url} target="_blank" rel="noopener noreferrer" className="text-gold-300 hover:text-gold-200 underline">
+                        ▶ {t('sermons.watch')}
+                      </a>
+                    )}
+                    {s.audio_url && (
+                      <a href={s.audio_url} target="_blank" rel="noopener noreferrer" className="text-gold-300 hover:text-gold-200 underline">
+                        🎧 {t('sermons.listen')}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
 

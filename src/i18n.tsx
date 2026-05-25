@@ -468,3 +468,13 @@ export function LangProvider({ children }: { children: ReactNode }) {
 export function useLang() {
   return useContext(LangContext);
 }
+
+// Sets <title> to "{translated key} · Iglesia Bautista Bíblica". Pass null for
+// the home page to use just the site name. Updates when language changes.
+export function usePageTitle(translationKey: string | null) {
+  const { t, lang } = useLang();
+  useEffect(() => {
+    const siteName = lang === 'es' ? 'Iglesia Bautista Bíblica · Grand Rapids' : 'Bible Baptist Church · Grand Rapids';
+    document.title = translationKey ? `${t(translationKey)} · ${siteName}` : siteName;
+  }, [translationKey, t, lang]);
+}
