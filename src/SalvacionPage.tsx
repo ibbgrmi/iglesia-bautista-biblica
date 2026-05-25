@@ -1,22 +1,31 @@
 import { useEffect, useRef, useState, FormEvent } from 'react';
-
-// ── Config ────────────────────────────────────────────────────────────────────
-// Apps Script gateway URL — emails the pastor on every submission.
-// (Public-safe because Apps Script has its own rate limits + we honeypot + cooldown.)
-const NOTIFY_URL = import.meta.env.VITE_NOTIFY_GATEWAY_URL as string;
+import { dbInsert, dbRpc, dbSelect } from './supabase';
 
 // Per-browser anti-spam thresholds.
 const SUBMIT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 const SUBMIT_DAILY_CAP   = 3;
 const MIN_FILL_TIME_MS   = 3000;
 
-// Placeholder stats — wire to Supabase later. Bump these freely for demo polish.
-const STATS_PLACEHOLDER = { visits: 47, salvations: 6 };
+// Visit counter dedup — same browser only counts once per 24h.
+const VISIT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 const SUBMIT_LOG_KEY = 'ibb.salvacion.submit-log';
+const LAST_VISIT_KEY = 'ibb.salvacion.last-visit-ts';
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function SalvacionPage() {
+  // Bump the visit counter once per 24h per browser.
+  useEffect(() => {
+    const last = parseInt(localStorage.getItem(LAST_VISIT_KEY) || '0');
+    if (Date.now() - last > VISIT_COOLDOWN_MS) {
+      dbRpc('increment_salvacion_visit').then(() => {
+        localStorage.setItem(LAST_VISIT_KEY, String(Date.now()));
+      }).catch((err) => {
+        console.warn('Visit counter increment failed:', err);
+      });
+    }
+  }, []);
+
   return (
     <div>
       <Hero />
@@ -154,8 +163,34 @@ function SinnersPrayer() {
 }
 
 // ── Stats card ────────────────────────────────────────────────────────────────
+interface StatsRow { year: number; salvacion_visits: number; salvacion_salvations: number }
+
 function StatsCard() {
   const year = new Date().getFullYear();
+  const [stats, setStats] = useState({ visits: 0, salvations: 0 });
+
+  useEffect(() => {
+    // Re-fetch on mount + every 30s while the page is open, so the counter
+    // ticks up if someone else submits while a visitor is reading.
+    let cancelled = false;
+    async function load() {
+      try {
+        const rows = await dbSelect<StatsRow>('stats', `year=eq.${year}&select=salvacion_visits,salvacion_salvations`);
+        if (cancelled) return;
+        const row = rows[0];
+        setStats({
+          visits: row?.salvacion_visits ?? 0,
+          salvations: row?.salvacion_salvations ?? 0,
+        });
+      } catch (err) {
+        console.warn('Stats fetch failed:', err);
+      }
+    }
+    load();
+    const t = setInterval(load, 30_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [year]);
+
   return (
     <section className="px-4 pb-12">
       <div className="max-w-2xl mx-auto rounded-xl p-6 sm:p-8 text-center bg-navy-800/40 border border-gold-400/15">
@@ -163,11 +198,11 @@ function StatsCard() {
         <p className="text-xs text-gray-500 mb-6">· {year} ·</p>
         <div className="grid grid-cols-2 gap-4 sm:gap-8">
           <div>
-            <div className="font-serif text-5xl sm:text-6xl text-gold-300 leading-none">{STATS_PLACEHOLDER.visits.toLocaleString()}</div>
+            <div className="font-serif text-5xl sm:text-6xl text-gold-300 leading-none">{stats.visits.toLocaleString()}</div>
             <div className="text-gray-300 text-sm sm:text-base mt-3 leading-snug">personas han<br />visitado esta página</div>
           </div>
           <div className="border-l border-gold-400/15 pl-4 sm:pl-8">
-            <div className="font-serif text-5xl sm:text-6xl text-gold-300 leading-none">{STATS_PLACEHOLDER.salvations.toLocaleString()}</div>
+            <div className="font-serif text-5xl sm:text-6xl text-gold-300 leading-none">{stats.salvations.toLocaleString()}</div>
             <div className="text-gray-300 text-sm sm:text-base mt-3 leading-snug">
               han dicho <strong className="text-gold-400">SÍ</strong><br />a Cristo
             </div>
@@ -224,23 +259,23 @@ function ConnectForm() {
     e.preventDefault();
     const form = e.currentTarget;
     const fd = new FormData(form);
+    const botcheck = (fd.get('botcheck') || '').toString();
     const data = {
-      botcheck: (fd.get('botcheck') || '').toString(),
       first_name:           (fd.get('first_name') || '').toString().trim(),
-      last_name:            (fd.get('last_name') || '').toString().trim(),
-      address:              (fd.get('address') || '').toString().trim(),
-      phone:                (fd.get('phone') || '').toString().trim(),
+      last_name:             (fd.get('last_name') || '').toString().trim(),
+      email:                 (fd.get('email') || '').toString().trim() || null,
+      phone:                 (fd.get('phone') || '').toString().trim() || null,
+      address:               (fd.get('address') || '').toString().trim() || null,
       profession_of_faith:  (fd.get('profession_of_faith') || '').toString(),
       wants_pastor_contact: fd.get('wants_pastor_contact') === 'on',
       wants_attend_service: fd.get('wants_attend_service') === 'on',
       wants_more_info:      fd.get('wants_more_info') === 'on',
       wants_prayer:         fd.get('wants_prayer') === 'on',
-      prayer_request:       (fd.get('prayer_request') || '').toString().trim(),
-      submitted_at:         new Date().toISOString(),
-      source:               'salvacion-page',
+      prayer_request:       (fd.get('prayer_request') || '').toString().trim() || null,
+      source:               'salvacion',
     };
 
-    if (data.botcheck) return;                                    // honeypot — silently drop
+    if (botcheck) return;                                          // honeypot — silently drop
     if (Date.now() - pageLoadedAt.current < MIN_FILL_TIME_MS) return; // bot — too fast
     if (!data.first_name || !data.last_name) {
       showToast('Por favor completa tu nombre y apellido.', 'error');
@@ -251,15 +286,11 @@ function ConnectForm() {
 
     setBusy(true);
     try {
-      // POST to Apps Script — the script reads `payload.record || payload`,
-      // so we wrap data in `record` to match the Supabase webhook shape too.
-      const res = await fetch(NOTIFY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // text/plain dodges CORS preflight
-        body: JSON.stringify({ table: 'salvacion_form', record: data }),
-      });
-      // Apps Script always 200s after redirect-follow, so we trust success unless network failed.
-      if (!res.ok && res.status !== 0) throw new Error(`HTTP ${res.status}`);
+      // Insert into Supabase form_submissions. The database webhook fires on
+      // INSERT and POSTs to the Apps Script, which emails the pastor. The
+      // BEFORE/AFTER trigger _trg_count_salvation also increments the salvations
+      // counter automatically when profession_of_faith === 'yes'.
+      await dbInsert('form_submissions', data);
       recordSubmit(Date.now());
       form.reset();
       setWantPrayer(false);
@@ -288,12 +319,16 @@ function ConnectForm() {
             </Field>
           </div>
 
-          <Field label="Dirección" optional>
-            <input name="address" type="text" autoComplete="street-address" className={inputClass} placeholder="Calle, ciudad, código postal" />
+          <Field label="Correo electrónico" optional>
+            <input name="email" type="email" autoComplete="email" className={inputClass} placeholder="tu@correo.com" />
           </Field>
 
           <Field label="Teléfono" optional>
             <input name="phone" type="tel" autoComplete="tel" className={inputClass} placeholder="(616) 555-0123" />
+          </Field>
+
+          <Field label="Dirección" optional>
+            <input name="address" type="text" autoComplete="street-address" className={inputClass} placeholder="Calle, ciudad, código postal" />
           </Field>
 
           <fieldset className="pt-2">

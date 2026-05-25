@@ -103,3 +103,48 @@ export async function dbDelete(table: string, query: string, accessToken: string
   });
   if (!res.ok) throw new Error(`${table} delete: HTTP ${res.status}`);
 }
+
+// ── RPC (Postgres functions) ──────────────────────────────────────────────────
+export async function dbRpc<T = unknown>(fn: string, params: object = {}, accessToken?: string): Promise<T> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: restHeaders(accessToken),
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`rpc/${fn}: HTTP ${res.status} — ${err}`);
+  }
+  // RPC may return empty body for void functions
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
+}
+
+// ── Edge Functions ────────────────────────────────────────────────────────────
+export async function callFunction<T = unknown>(name: string, body: object, accessToken: string): Promise<T> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+      apikey: SUPABASE_ANON,
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `function ${name}: HTTP ${res.status}`);
+  return json;
+}
+
+// ── Password reset ────────────────────────────────────────────────────────────
+export async function resetPasswordForEmail(email: string, redirectTo: string): Promise<void> {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ email, redirect_to: redirectTo }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.msg || `HTTP ${res.status}`);
+  }
+}
