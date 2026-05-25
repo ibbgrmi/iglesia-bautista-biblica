@@ -41,8 +41,8 @@ export default function Layout() {
     <div className="min-h-screen flex flex-col">
       {/* Top nav */}
       <header className="sticky top-0 z-40 bg-navy-950/85 backdrop-blur-md border-b border-gold-400/15">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16 sm:h-20">
-          <Link to="/" className="flex items-center gap-3 group">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between gap-6 h-16 sm:h-20">
+          <Link to="/" className="flex items-center gap-3 group flex-shrink-0">
             <img
               src={`${import.meta.env.BASE_URL}assets/logo.png`}
               alt="IBB Grand Rapids"
