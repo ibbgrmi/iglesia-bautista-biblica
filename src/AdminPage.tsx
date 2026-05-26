@@ -935,20 +935,34 @@ interface PrayerRequest {
   printed_at: string | null;
 }
 
-// Compute the next Wednesday at-or-after today (Thursday→Wednesday rule, 7 PM cutoff)
-// — JS mirror of the SQL function next_prayer_service(). Used to default the
-// filter range and the "Añadir manual" form.
+// Compute the next Wednesday at-or-after today (Thursday→Wednesday rule, 7 PM
+// cutoff) in America/New_York — JS mirror of the SQL function
+// next_prayer_service(). Must use NY local time consistently otherwise the
+// admin's default date filter drifts one day off from the row's service_date.
 function nextPrayerServiceDate(at: Date = new Date()): string {
-  const d = new Date(at);
-  const dow = d.getDay(); // Sun=0..Sat=6
+  // Parse the moment's wall-clock components in America/New_York.
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
+    weekday: 'short', hour12: false,
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(at).map((p) => [p.type, p.value]));
+  // weekday: Sun, Mon, Tue, Wed, Thu, Fri, Sat
+  const isoMap: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+  const iso = isoMap[parts.weekday];
+  const hour = parseInt(parts.hour, 10);
+
   let delta: number;
-  // Convert JS dow → ISO dow (Mon=1..Sun=7) for parity with the SQL function
-  const iso = dow === 0 ? 7 : dow;
-  if (iso < 3)       delta = 3 - iso;
-  else if (iso === 3) delta = d.getHours() < 19 ? 0 : 7;
-  else               delta = 10 - iso;
-  d.setDate(d.getDate() + delta);
-  return d.toISOString().slice(0, 10);
+  if (iso < 3)        delta = 3 - iso;
+  else if (iso === 3) delta = hour < 19 ? 0 : 7;
+  else                delta = 10 - iso;
+
+  // Build a date from NY-local YYYY-MM-DD (NOT from UTC midnight) and add delta days.
+  const y = parseInt(parts.year, 10);
+  const m = parseInt(parts.month, 10);
+  const d = parseInt(parts.day, 10);
+  const target = new Date(Date.UTC(y, m - 1, d + delta));
+  return target.toISOString().slice(0, 10);
 }
 
 function PrayersView({ accessToken }: { accessToken: string }) {
