@@ -3,7 +3,7 @@ import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { callFunction, dbSelect, dbUpdate, dbInsert, dbRpc } from './supabase';
 
-type Tab = 'submissions' | 'calendar' | 'sermons' | 'stats' | 'users';
+type Tab = 'submissions' | 'prayers' | 'calendar' | 'sermons' | 'stats' | 'users';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type SubmissionStatus = 'new' | 'in_progress' | 'responded' | 'archived';
@@ -93,6 +93,7 @@ export default function AdminPage() {
 
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex gap-1 overflow-x-auto">
           <TabButton active={tab === 'submissions'} onClick={() => setTab('submissions')}>Mensajes</TabButton>
+          <TabButton active={tab === 'prayers'}     onClick={() => setTab('prayers')}>Peticiones</TabButton>
           <TabButton active={tab === 'calendar'}    onClick={() => setTab('calendar')}>Calendario</TabButton>
           <TabButton active={tab === 'sermons'}     onClick={() => setTab('sermons')}>Sermones</TabButton>
           <TabButton active={tab === 'stats'}       onClick={() => setTab('stats')}>Estadísticas</TabButton>
@@ -102,6 +103,7 @@ export default function AdminPage() {
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         {tab === 'submissions' && <SubmissionsView accessToken={session.access_token} />}
+        {tab === 'prayers'     && <PrayersView     accessToken={session.access_token} />}
         {tab === 'calendar'    && <CalendarView    accessToken={session.access_token} />}
         {tab === 'sermons'     && <SermonsView     accessToken={session.access_token} />}
         {tab === 'stats'       && <StatsView       accessToken={session.access_token} />}
@@ -527,11 +529,13 @@ function Detail({ label, value, href }: { label: string; value: string; href?: s
   );
 }
 
-function Badge({ color, children }: { color: 'gold' | 'blue' | 'amber'; children: React.ReactNode }) {
+function Badge({ color, children }: { color: 'gold' | 'blue' | 'amber' | 'green' | 'gray'; children: React.ReactNode }) {
   const classes =
-    color === 'gold'  ? 'bg-gold-400/15 text-gold-300 border-gold-400/30' :
-    color === 'blue'  ? 'bg-blue-400/15 text-blue-300 border-blue-400/30' :
-                        'bg-amber-400/15 text-amber-300 border-amber-400/30';
+    color === 'gold'  ? 'bg-gold-400/15 text-gold-300 border-gold-400/30'   :
+    color === 'blue'  ? 'bg-blue-400/15 text-blue-300 border-blue-400/30'   :
+    color === 'amber' ? 'bg-amber-400/15 text-amber-300 border-amber-400/30' :
+    color === 'green' ? 'bg-green-400/15 text-green-300 border-green-400/30' :
+                        'bg-gray-500/15 text-gray-300 border-gray-500/40';
   return (
     <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded border ${classes}`}>
       {children}
@@ -544,6 +548,475 @@ function Chip({ children }: { children: React.ReactNode }) {
     <span className="inline-block px-2.5 py-1 rounded-md bg-gold-400/10 border border-gold-400/20 text-gold-300 text-xs">
       {children}
     </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Peticiones de oración (Prayer requests)
+// ─────────────────────────────────────────────────────────────────────────────
+type PrayerStatus = 'pending' | 'answered' | 'archived' | 'all';
+type PrayerSource = 'all' | 'web' | 'whatsapp' | 'phone' | 'in-person' | 'email' | 'other';
+
+interface PrayerRequest {
+  id: string;
+  created_at: string;
+  name: string;
+  is_anonymous: boolean;
+  petition: string;
+  email: string;
+  phone: string;
+  source: PrayerSource;
+  service_date: string;          // YYYY-MM-DD
+  is_answered: boolean;
+  answered_at: string | null;
+  answered_notes: string;
+  is_archived: boolean;
+  archived_at: string | null;
+  printed_at: string | null;
+}
+
+// Compute the next Wednesday at-or-after today (Thursday→Wednesday rule, 7 PM cutoff)
+// — JS mirror of the SQL function next_prayer_service(). Used to default the
+// filter range and the "Añadir manual" form.
+function nextPrayerServiceDate(at: Date = new Date()): string {
+  const d = new Date(at);
+  const dow = d.getDay(); // Sun=0..Sat=6
+  let delta: number;
+  // Convert JS dow → ISO dow (Mon=1..Sun=7) for parity with the SQL function
+  const iso = dow === 0 ? 7 : dow;
+  if (iso < 3)       delta = 3 - iso;
+  else if (iso === 3) delta = d.getHours() < 19 ? 0 : 7;
+  else               delta = 10 - iso;
+  d.setDate(d.getDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+function PrayersView({ accessToken }: { accessToken: string }) {
+  const [items, setItems] = useState<PrayerRequest[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const todayWed = nextPrayerServiceDate();
+  const [fromDate, setFromDate] = useState(todayWed);
+  const [toDate,   setToDate]   = useState(todayWed);
+  const [status,   setStatus]   = useState<PrayerStatus>('pending');
+  const [source,   setSource]   = useState<PrayerSource>('all');
+  const [search,   setSearch]   = useState('');
+  const [creating, setCreating] = useState(false);
+  const [answering, setAnswering] = useState<PrayerRequest | null>(null);
+
+  async function load() {
+    setErr(null);
+    try {
+      const rows = await dbSelect<PrayerRequest>(
+        'prayer_requests',
+        'deleted_at=is.null&order=service_date.asc,created_at.asc',
+        accessToken,
+      );
+      setItems(rows);
+    } catch (e) { setErr(String(e)); }
+  }
+  useEffect(() => { load(); }, [accessToken]);
+
+  async function patch(id: string, body: Partial<PrayerRequest>) {
+    setItems((prev) => prev?.map((r) => (r.id === id ? { ...r, ...body } : r)) ?? prev);
+    try {
+      await dbUpdate('prayer_requests', `id=eq.${id}`, body, accessToken);
+    } catch (e) { setErr(String(e)); load(); }
+  }
+
+  async function softDelete(id: string) {
+    if (!confirm('¿Eliminar esta petición? Se puede recuperar desde la base de datos.')) return;
+    setItems((prev) => prev?.filter((r) => r.id !== id) ?? prev);
+    try {
+      await dbUpdate('prayer_requests', `id=eq.${id}`, { deleted_at: new Date().toISOString() }, accessToken);
+    } catch (e) { setErr(String(e)); load(); }
+  }
+
+  const filtered = useMemo(() => {
+    if (!items) return null;
+    const q = search.trim().toLowerCase();
+    return items.filter((p) => {
+      if (fromDate && p.service_date < fromDate) return false;
+      if (toDate   && p.service_date > toDate)   return false;
+      if (source !== 'all' && p.source !== source) return false;
+      if (status === 'pending'  && (p.is_answered || p.is_archived)) return false;
+      if (status === 'answered' && !p.is_answered) return false;
+      if (status === 'archived' && !p.is_archived) return false;
+      if (q) {
+        const hay = `${p.name} ${p.petition} ${p.answered_notes}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [items, fromDate, toDate, source, status, search]);
+
+  const counts = useMemo(() => {
+    if (!items) return { all: 0, pending: 0, answered: 0, archived: 0 };
+    return items.reduce((a, p) => {
+      a.all++;
+      if (p.is_archived) a.archived++;
+      else if (p.is_answered) a.answered++;
+      else a.pending++;
+      return a;
+    }, { all: 0, pending: 0, answered: 0, archived: 0 });
+  }, [items]);
+
+  function openPrint() {
+    const params = new URLSearchParams({ from: fromDate, to: toDate, status, source });
+    window.open(`/admin/peticiones/print?${params.toString()}`, '_blank', 'noopener');
+  }
+
+  function setQuickRange(preset: 'this' | 'next' | 'last' | 'month' | 'all') {
+    const now = new Date();
+    if (preset === 'this') {
+      const wed = nextPrayerServiceDate(now);
+      setFromDate(wed); setToDate(wed);
+    } else if (preset === 'next') {
+      const wed = new Date(nextPrayerServiceDate(now) + 'T12:00:00');
+      wed.setDate(wed.getDate() + 7);
+      const iso = wed.toISOString().slice(0, 10);
+      setFromDate(iso); setToDate(iso);
+    } else if (preset === 'last') {
+      const wed = new Date(nextPrayerServiceDate(now) + 'T12:00:00');
+      wed.setDate(wed.getDate() - 7);
+      const iso = wed.toISOString().slice(0, 10);
+      setFromDate(iso); setToDate(iso);
+    } else if (preset === 'month') {
+      const first = new Date(now.getFullYear(), now.getMonth(), 1);
+      const last  = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      setFromDate(first.toISOString().slice(0, 10));
+      setToDate(last.toISOString().slice(0, 10));
+    } else {
+      setFromDate(''); setToDate('');
+    }
+  }
+
+  if (err) return <ErrorBox text={err} />;
+  if (items === null) return <p className="text-gold-300/60">Cargando peticiones…</p>;
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+        <div>
+          <h2 className="font-serif text-2xl text-gold-300">Peticiones de Oración</h2>
+          <p className="text-sm text-gray-400">{counts.all} en total · {counts.pending} pendientes · {counts.answered} respondidas</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setCreating(true)} className="px-3 py-1.5 text-xs border border-gold-400/30 text-gold-300 rounded-lg hover:bg-gold-400/10 transition">+ Añadir manual</button>
+          <button onClick={openPrint} disabled={!filtered || filtered.length === 0}
+            className="px-3 py-1.5 text-xs bg-gradient-to-b from-gold-300 to-gold-500 text-navy-900 font-semibold rounded-lg hover:brightness-110 transition disabled:opacity-40">
+            ↓ Imprimir hoja ({filtered?.length ?? 0})
+          </button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="rounded-xl bg-navy-800/30 border border-gold-400/10 p-3 sm:p-4 mb-5 space-y-3">
+        {/* Status pills */}
+        <div className="flex flex-wrap gap-1.5">
+          <FilterPill active={status === 'pending'}  onClick={() => setStatus('pending')}>Pendientes · {counts.pending}</FilterPill>
+          <FilterPill active={status === 'answered'} onClick={() => setStatus('answered')}>Respondidas · {counts.answered}</FilterPill>
+          <FilterPill active={status === 'archived'} onClick={() => setStatus('archived')}>Archivadas · {counts.archived}</FilterPill>
+          <FilterPill active={status === 'all'}      onClick={() => setStatus('all')}>Todas · {counts.all}</FilterPill>
+        </div>
+
+        {/* Date range + presets */}
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider text-gold-400/70 mb-1">Servicio desde</label>
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="bg-navy-950/60 border border-gold-400/20 rounded px-2 py-1 text-sm text-gray-100" />
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider text-gold-400/70 mb-1">Hasta</label>
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="bg-navy-950/60 border border-gold-400/20 rounded px-2 py-1 text-sm text-gray-100" />
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <PresetBtn onClick={() => setQuickRange('this')}>Esta semana</PresetBtn>
+            <PresetBtn onClick={() => setQuickRange('next')}>Próxima</PresetBtn>
+            <PresetBtn onClick={() => setQuickRange('last')}>Pasada</PresetBtn>
+            <PresetBtn onClick={() => setQuickRange('month')}>Este mes</PresetBtn>
+            <PresetBtn onClick={() => setQuickRange('all')}>Todo</PresetBtn>
+          </div>
+        </div>
+
+        {/* Source + search */}
+        <div className="flex flex-wrap items-center gap-3">
+          <select value={source} onChange={(e) => setSource(e.target.value as PrayerSource)}
+            className="bg-navy-950/60 border border-gold-400/20 rounded-lg px-3 py-1.5 text-sm text-gray-100">
+            <option value="all">Todas las fuentes</option>
+            <option value="web">Web</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="phone">Teléfono</option>
+            <option value="in-person">En persona</option>
+            <option value="email">Correo</option>
+            <option value="other">Otra</option>
+          </select>
+          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre o texto…"
+            className="flex-1 min-w-[180px] bg-navy-950/60 border border-gold-400/20 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-gold-400" />
+        </div>
+      </div>
+
+      {filtered && filtered.length === 0 ? (
+        <div className="text-center py-16 bg-navy-800/30 border border-gold-400/10 rounded-xl">
+          <div className="text-5xl mb-3">🙏</div>
+          <p className="text-gray-300">No hay peticiones que coincidan.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered?.map((p, idx) => (
+            <PrayerRow
+              key={p.id}
+              idx={idx + 1}
+              p={p}
+              onPatch={(body) => patch(p.id, body)}
+              onAnswer={() => setAnswering(p)}
+              onDelete={() => softDelete(p.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {creating && (
+        <PrayerCreateModal
+          accessToken={accessToken}
+          onClose={() => setCreating(false)}
+          onSaved={() => { setCreating(false); load(); }}
+        />
+      )}
+      {answering && (
+        <PrayerAnswerModal
+          prayer={answering}
+          onClose={() => setAnswering(null)}
+          onSave={(notes) => {
+            patch(answering.id, {
+              is_answered: true,
+              answered_at: new Date().toISOString(),
+              answered_notes: notes,
+            });
+            setAnswering(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PresetBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="px-2.5 py-1 text-xs rounded-md border border-gold-400/20 text-gray-300 hover:text-gold-300 hover:border-gold-400/40 transition">{children}</button>
+  );
+}
+
+function PrayerRow({
+  idx, p, onPatch, onAnswer, onDelete,
+}: {
+  idx: number;
+  p: PrayerRequest;
+  onPatch: (body: Partial<PrayerRequest>) => void;
+  onAnswer: () => void;
+  onDelete: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const createdStr  = new Date(p.created_at).toLocaleString('es-US', { dateStyle: 'medium', timeStyle: 'short' });
+  const serviceStr  = new Date(p.service_date + 'T12:00:00').toLocaleDateString('es-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const displayName = p.is_anonymous ? '(anónimo)' : (p.name || '(sin nombre)');
+
+  return (
+    <article className={`rounded-xl border transition ${
+      p.is_archived ? 'bg-navy-800/20 border-gold-400/10 opacity-70' :
+      p.is_answered ? 'bg-green-500/[0.05] border-green-400/25' :
+                      'bg-navy-800/40 border-gold-400/15'
+    }`}>
+      <button onClick={() => setExpanded(!expanded)} className="w-full p-4 sm:p-5 flex items-start gap-3 text-left hover:bg-gold-400/5 transition">
+        <span className="text-gold-400/70 font-serif text-lg w-8 flex-shrink-0">{idx}.</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <strong className="text-gold-300 text-base">{displayName}</strong>
+            <SourceBadge source={p.source} />
+            {p.is_answered && <Badge color="green">respondida</Badge>}
+            {p.is_archived && <Badge color="gray">archivada</Badge>}
+            {p.printed_at && <span className="text-[10px] text-gold-400/50">✓ impresa</span>}
+          </div>
+          <p className="text-gray-200 text-sm mt-1.5 line-clamp-2">{p.petition}</p>
+          <p className="text-gray-400 text-xs mt-1.5">
+            Recibida {createdStr} · Servicio: {serviceStr}
+          </p>
+        </div>
+        <span className={`text-gold-400 text-xl self-center transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
+      </button>
+
+      {expanded && (
+        <div className="px-4 sm:px-5 pb-5 border-t border-gold-400/10 pt-4 space-y-4 text-sm">
+          {/* Actions */}
+          <div className="flex flex-wrap gap-2">
+            {!p.is_answered && <ActionBtn onClick={onAnswer}>✓ Marcar respondida</ActionBtn>}
+            {p.is_answered && <ActionBtn onClick={() => onPatch({ is_answered: false, answered_at: null })}>↺ Reabrir</ActionBtn>}
+            <ActionBtn onClick={() => onPatch({
+              is_archived: !p.is_archived,
+              archived_at: !p.is_archived ? new Date().toISOString() : null,
+            })}>
+              {p.is_archived ? '📤 Desarchivar' : '📦 Archivar'}
+            </ActionBtn>
+            <ActionBtn onClick={onDelete} danger>🗑 Eliminar</ActionBtn>
+          </div>
+
+          {/* Full petition */}
+          <div>
+            <p className="text-xs uppercase tracking-wider text-gold-400/70 mb-1.5">Petición completa</p>
+            <p className="text-gray-100 leading-relaxed bg-navy-950/50 rounded-lg p-3 whitespace-pre-wrap">{p.petition}</p>
+          </div>
+
+          {/* Contact info */}
+          {(p.email || p.phone) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {p.email && <Detail label="Correo"   value={p.email} href={`mailto:${p.email}`} />}
+              {p.phone && <Detail label="Teléfono" value={p.phone} href={`tel:${p.phone}`} />}
+            </div>
+          )}
+
+          {/* Service date edit */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs uppercase tracking-wider text-gold-400/70">Servicio</label>
+            <input
+              type="date"
+              value={p.service_date}
+              onChange={(e) => onPatch({ service_date: e.target.value })}
+              className="bg-navy-950/60 border border-gold-400/20 rounded px-2 py-1 text-gray-100 text-sm"
+            />
+          </div>
+
+          {/* Answered notes */}
+          {p.is_answered && (
+            <div>
+              <p className="text-xs uppercase tracking-wider text-gold-400/70 mb-1.5">Notas (cómo se respondió)</p>
+              <textarea
+                rows={2}
+                defaultValue={p.answered_notes}
+                onBlur={(e) => { if (e.target.value !== p.answered_notes) onPatch({ answered_notes: e.target.value }); }}
+                className="w-full bg-navy-950/60 border border-gold-400/20 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-gold-400"
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function SourceBadge({ source }: { source: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    'web':       { label: 'web',        cls: 'bg-blue-400/15 text-blue-200 border-blue-400/30' },
+    'whatsapp':  { label: 'whatsapp',   cls: 'bg-green-400/15 text-green-200 border-green-400/30' },
+    'phone':     { label: 'teléfono',   cls: 'bg-purple-400/15 text-purple-200 border-purple-400/30' },
+    'in-person': { label: 'en persona', cls: 'bg-amber-400/15 text-amber-200 border-amber-400/30' },
+    'email':     { label: 'correo',     cls: 'bg-cyan-400/15 text-cyan-200 border-cyan-400/30' },
+    'other':     { label: 'otra',       cls: 'bg-gray-400/15 text-gray-300 border-gray-400/30' },
+  };
+  const m = map[source] || map['other'];
+  return <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded border ${m.cls}`}>{m.label}</span>;
+}
+
+function PrayerCreateModal({ accessToken, onClose, onSaved }: { accessToken: string; onClose: () => void; onSaved: () => void }) {
+  const [name, setName]             = useState('');
+  const [anonymous, setAnonymous]   = useState(false);
+  const [petition, setPetition]     = useState('');
+  const [email, setEmail]           = useState('');
+  const [phone, setPhone]           = useState('');
+  const [source, setSource]         = useState<PrayerSource>('whatsapp');
+  const [serviceDate, setServiceDate] = useState(nextPrayerServiceDate());
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setErr(null); setBusy(true);
+    try {
+      await dbInsert('prayer_requests', {
+        name: anonymous ? '' : name.trim(),
+        is_anonymous: anonymous,
+        petition: petition.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        source,
+        service_date: serviceDate,
+      }, accessToken);
+      onSaved();
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  }
+
+  return (
+    <Modal title="Añadir petición manualmente" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <label className="flex items-center gap-2 text-sm text-gray-300">
+          <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} className="accent-gold-400" />
+          Anónimo
+        </label>
+
+        {!anonymous && (
+          <Field label="Nombre">
+            <input required={!anonymous} value={name} onChange={(e) => setName(e.target.value)} className={modalInput} />
+          </Field>
+        )}
+
+        <Field label="Petición">
+          <textarea required rows={4} value={petition} onChange={(e) => setPetition(e.target.value)} className={`${modalInput} resize-none`} />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Correo (opcional)">
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={modalInput} />
+          </Field>
+          <Field label="Teléfono (opcional)">
+            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={modalInput} />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Fuente">
+            <select value={source} onChange={(e) => setSource(e.target.value as PrayerSource)} className={modalInput}>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="phone">Teléfono</option>
+              <option value="in-person">En persona</option>
+              <option value="email">Correo</option>
+              <option value="other">Otra</option>
+              <option value="web">Web</option>
+            </select>
+          </Field>
+          <Field label="Servicio (miércoles)">
+            <input type="date" value={serviceDate} onChange={(e) => setServiceDate(e.target.value)} className={modalInput} />
+          </Field>
+        </div>
+
+        {err && <p className="text-red-400 text-sm">{err}</p>}
+        <div className="flex gap-2 justify-end pt-2">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-gold-400/20 text-gray-300 rounded-lg hover:bg-gold-400/5">Cancelar</button>
+          <button type="submit" disabled={busy} className="px-4 py-2 text-sm bg-gradient-to-b from-gold-300 to-gold-500 text-navy-900 font-semibold rounded-lg disabled:opacity-60">
+            {busy ? 'Guardando…' : 'Guardar petición'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function PrayerAnswerModal({ prayer, onClose, onSave }: { prayer: PrayerRequest; onClose: () => void; onSave: (notes: string) => void }) {
+  const [notes, setNotes] = useState(prayer.answered_notes);
+  return (
+    <Modal title="Marcar como respondida" onClose={onClose}>
+      <p className="text-sm text-gray-400 mb-3">
+        <strong className="text-gold-300">{prayer.is_anonymous ? '(anónimo)' : (prayer.name || '(sin nombre)')}</strong>
+      </p>
+      <p className="text-gray-200 italic bg-navy-950/50 rounded-lg p-3 mb-4 text-sm">{prayer.petition}</p>
+      <Field label="¿Cómo se respondió la oración? (opcional)">
+        <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} className={`${modalInput} resize-none`} placeholder="Ej: María se recuperó completamente. Gracias a Dios." />
+      </Field>
+      <div className="flex gap-2 justify-end pt-3">
+        <button onClick={onClose} className="px-4 py-2 text-sm border border-gold-400/20 text-gray-300 rounded-lg hover:bg-gold-400/5">Cancelar</button>
+        <button onClick={() => onSave(notes)} className="px-4 py-2 text-sm bg-gradient-to-b from-green-300 to-green-500 text-navy-900 font-semibold rounded-lg">
+          ✓ Marcar respondida
+        </button>
+      </div>
+    </Modal>
   );
 }
 

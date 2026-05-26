@@ -9,9 +9,11 @@ import CalendarioPage from './CalendarioPage';
 import SermonesPage from './SermonesPage';
 import EscuelaDominicalPage from './EscuelaDominicalPage';
 import SalvacionPage from './SalvacionPage';
+import PeticionPage from './PeticionPage';
 import ContactoPage from './ContactoPage';
 import LoginPage from './LoginPage';
 import AdminPage from './AdminPage';
+import PrintPeticionesPage from './PrintPeticionesPage';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -27,6 +29,7 @@ export default function App() {
         {/* Admin routes — clean fullscreen, no Layout */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/admin/peticiones/print" element={<PrintPeticionesPage />} />
 
         {/* Public routes — share the Layout (nav + footer) via Outlet */}
         <Route element={<Layout />}>
@@ -38,6 +41,7 @@ export default function App() {
           <Route path="/sermones"          element={<SermonesPage />} />
           <Route path="/escuela-dominical" element={<EscuelaDominicalPage />} />
           <Route path="/plandesalvacion"   element={<SalvacionPage />} />
+          <Route path="/peticion"          element={<PeticionPage />} />
           <Route path="/contacto"          element={<ContactoPage />} />
 
           {/* Backwards-compat redirects.

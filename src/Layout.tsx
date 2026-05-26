@@ -14,6 +14,7 @@ const NAV: NavItem[] = [
   { to: '/sermones',           key: 'nav.sermons' },
   { to: '/escuela-dominical',  key: 'nav.sundaySchool' },
   { to: '/plandesalvacion',    key: 'nav.salvation' },
+  { to: '/peticion',           key: 'nav.petition' },
   { to: '/contacto',           key: 'nav.contact' },
 ];
 
