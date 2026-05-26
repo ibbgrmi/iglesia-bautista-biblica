@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, FormEvent } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
-import { callFunction, dbSelect, dbUpdate, dbInsert } from './supabase';
+import { callFunction, dbSelect, dbUpdate, dbInsert, dbRpc } from './supabase';
 
-type Tab = 'submissions' | 'calendar' | 'sermons' | 'users';
+type Tab = 'submissions' | 'calendar' | 'sermons' | 'stats' | 'users';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type SubmissionStatus = 'new' | 'in_progress' | 'responded' | 'archived';
@@ -95,6 +95,7 @@ export default function AdminPage() {
           <TabButton active={tab === 'submissions'} onClick={() => setTab('submissions')}>Mensajes</TabButton>
           <TabButton active={tab === 'calendar'}    onClick={() => setTab('calendar')}>Calendario</TabButton>
           <TabButton active={tab === 'sermons'}     onClick={() => setTab('sermons')}>Sermones</TabButton>
+          <TabButton active={tab === 'stats'}       onClick={() => setTab('stats')}>Estadísticas</TabButton>
           <TabButton active={tab === 'users'}       onClick={() => setTab('users')}>Usuarios</TabButton>
         </div>
       </header>
@@ -103,6 +104,7 @@ export default function AdminPage() {
         {tab === 'submissions' && <SubmissionsView accessToken={session.access_token} />}
         {tab === 'calendar'    && <CalendarView    accessToken={session.access_token} />}
         {tab === 'sermons'     && <SermonsView     accessToken={session.access_token} />}
+        {tab === 'stats'       && <StatsView       accessToken={session.access_token} />}
         {tab === 'users'       && <UsersView       accessToken={session.access_token} currentUserId={user.id} />}
       </main>
     </div>
@@ -907,6 +909,104 @@ function SermonModal({
         </div>
       </form>
     </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Estadísticas — visit + salvation counters with reset
+// ─────────────────────────────────────────────────────────────────────────────
+interface StatsRow { year: number; salvacion_visits: number; salvacion_salvations: number }
+
+function StatsView({ accessToken }: { accessToken: string }) {
+  const year = new Date().getFullYear();
+  const [stats, setStats] = useState<StatsRow | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<'visits' | 'salvations' | null>(null);
+
+  async function load() {
+    setErr(null);
+    try {
+      const rows = await dbSelect<StatsRow>('stats', `year=eq.${year}&select=year,salvacion_visits,salvacion_salvations`, accessToken);
+      setStats(rows[0] ?? { year, salvacion_visits: 0, salvacion_salvations: 0 });
+    } catch (e) {
+      setErr(String(e));
+    }
+  }
+  useEffect(() => { load(); }, [accessToken]);
+
+  async function reset(kind: 'visits' | 'salvations') {
+    const label = kind === 'visits' ? 'visitas' : 'profesiones de fe (salvaciones)';
+    if (!confirm(`¿Reiniciar el contador de ${label} a 0 para ${year}? No se puede deshacer.`)) return;
+    setBusy(kind);
+    setErr(null);
+    try {
+      await dbRpc('reset_salvacion_stats', {
+        reset_visits:     kind === 'visits',
+        reset_salvations: kind === 'salvations',
+      }, accessToken);
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (err) return <ErrorBox text={err} />;
+
+  return (
+    <div>
+      <div className="mb-5">
+        <h2 className="font-serif text-2xl text-gold-300">Estadísticas</h2>
+        <p className="text-sm text-gray-400">Contadores del Plan de Salvación para {year}.</p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <StatCard
+          label="Visitas a /plandesalvacion"
+          value={stats?.salvacion_visits ?? null}
+          busy={busy === 'visits'}
+          onReset={() => reset('visits')}
+        />
+        <StatCard
+          label="Profesiones de fe (salvaciones)"
+          value={stats?.salvacion_salvations ?? null}
+          busy={busy === 'salvations'}
+          onReset={() => reset('salvations')}
+          danger
+        />
+      </div>
+
+      <p className="text-xs text-gray-500 mt-6 leading-relaxed">
+        Las visitas se cuentan una vez cada 24 horas por navegador. Las profesiones de fe se incrementan
+        automáticamente cuando alguien envía el formulario con "Sí, hice la profesión de fe hoy". Reiniciar
+        el contador de salvaciones es destructivo — úsalo solo durante pruebas.
+      </p>
+    </div>
+  );
+}
+
+function StatCard({ label, value, busy, onReset, danger }: {
+  label: string; value: number | null; busy: boolean; onReset: () => void; danger?: boolean;
+}) {
+  return (
+    <article className="rounded-xl bg-navy-800/40 border border-gold-400/15 p-6">
+      <p className="text-xs uppercase tracking-wider text-gold-400/70 mb-2">{label}</p>
+      <p className="font-serif text-5xl text-gold-300 leading-none mb-5">
+        {value === null ? '—' : value.toLocaleString('es-US')}
+      </p>
+      <button
+        onClick={onReset}
+        disabled={busy || value === null}
+        className={`px-3 py-1.5 text-xs rounded-lg border transition disabled:opacity-50 ${
+          danger
+            ? 'border-red-500/30 text-red-300 hover:bg-red-500/10'
+            : 'border-gold-400/30 text-gold-300 hover:bg-gold-400/10'
+        }`}
+      >
+        {busy ? 'Reiniciando…' : '↻ Reiniciar a 0'}
+      </button>
+    </article>
   );
 }
 
