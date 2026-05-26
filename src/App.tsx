@@ -42,6 +42,7 @@ export default function App() {
           <Route path="/escuela-dominical" element={<EscuelaDominicalPage />} />
           <Route path="/plandesalvacion"   element={<SalvacionPage />} />
           <Route path="/peticion"          element={<PeticionPage />} />
+          <Route path="/petition"          element={<PeticionPage />} />
           <Route path="/contacto"          element={<ContactoPage />} />
 
           {/* Backwards-compat redirects.

@@ -3,7 +3,7 @@ import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { callFunction, dbSelect, dbUpdate, dbInsert, dbRpc } from './supabase';
 
-type Tab = 'submissions' | 'prayers' | 'calendar' | 'sermons' | 'stats' | 'users';
+type Tab = 'submissions' | 'contacts' | 'prayers' | 'calendar' | 'sermons' | 'stats' | 'users';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type SubmissionStatus = 'new' | 'in_progress' | 'responded' | 'archived';
@@ -93,6 +93,7 @@ export default function AdminPage() {
 
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex gap-1 overflow-x-auto">
           <TabButton active={tab === 'submissions'} onClick={() => setTab('submissions')}>Mensajes</TabButton>
+          <TabButton active={tab === 'contacts'}    onClick={() => setTab('contacts')}>Contactos</TabButton>
           <TabButton active={tab === 'prayers'}     onClick={() => setTab('prayers')}>Peticiones</TabButton>
           <TabButton active={tab === 'calendar'}    onClick={() => setTab('calendar')}>Calendario</TabButton>
           <TabButton active={tab === 'sermons'}     onClick={() => setTab('sermons')}>Sermones</TabButton>
@@ -103,6 +104,7 @@ export default function AdminPage() {
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         {tab === 'submissions' && <SubmissionsView accessToken={session.access_token} />}
+        {tab === 'contacts'    && <ContactsView    accessToken={session.access_token} />}
         {tab === 'prayers'     && <PrayersView     accessToken={session.access_token} />}
         {tab === 'calendar'    && <CalendarView    accessToken={session.access_token} />}
         {tab === 'sermons'     && <SermonsView     accessToken={session.access_token} />}
@@ -217,13 +219,11 @@ function SubmissionsView({ accessToken }: { accessToken: string }) {
       return /[",\n]/.test(s) ? `"${s}"` : s;
     };
     const rows = [cols.join(','), ...filtered.map((r) => cols.map((c) => esc(r[c])).join(','))];
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `mensajes-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(rows.join('\n'), `mensajes-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
+  }
+  function exportPdf() {
+    if (!filtered || filtered.length === 0) return;
+    openPrintWindow(renderSubmissionsPrintHtml(filtered));
   }
 
   if (err) return <ErrorBox text={err} />;
@@ -236,13 +236,22 @@ function SubmissionsView({ accessToken }: { accessToken: string }) {
           <h2 className="font-serif text-2xl text-gold-300">Mensajes recibidos</h2>
           <p className="text-sm text-gray-400">{counts.all} en total · {counts.new} nuevos · {counts.in_progress} en proceso</p>
         </div>
-        <button
-          onClick={exportCsv}
-          disabled={!filtered || filtered.length === 0}
-          className="self-start sm:self-auto px-3 py-1.5 text-xs border border-gold-400/30 text-gold-300 rounded-lg hover:bg-gold-400/10 transition disabled:opacity-40"
-        >
-          ⬇ Exportar CSV
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={exportCsv}
+            disabled={!filtered || filtered.length === 0}
+            className="px-3 py-1.5 text-xs border border-gold-400/30 text-gold-300 rounded-lg hover:bg-gold-400/10 transition disabled:opacity-40"
+          >
+            ⬇ CSV
+          </button>
+          <button
+            onClick={exportPdf}
+            disabled={!filtered || filtered.length === 0}
+            className="px-3 py-1.5 text-xs border border-gold-400/30 text-gold-300 rounded-lg hover:bg-gold-400/10 transition disabled:opacity-40"
+          >
+            📄 PDF
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -549,6 +558,357 @@ function Chip({ children }: { children: React.ReactNode }) {
       {children}
     </span>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Contactos — general contact form submissions
+// ─────────────────────────────────────────────────────────────────────────────
+type ContactReason = 'pastoral' | 'visit' | 'volunteer' | 'general' | 'other';
+
+interface ContactMessage {
+  id: string;
+  created_at: string;
+  name: string;
+  email: string;
+  phone: string;
+  reason: ContactReason;
+  message: string;
+  source: string;
+  status: SubmissionStatus;
+  is_starred: boolean;
+  admin_notes: string;
+  read_at: string | null;
+  responded_at: string | null;
+  needs_follow_up: boolean;
+  follow_up_at: string | null;
+}
+
+function ContactsView({ accessToken }: { accessToken: string }) {
+  const [items, setItems] = useState<ContactMessage[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
+  const [reasonFilter, setReasonFilter] = useState<'all' | ContactReason>('all');
+  const [search, setSearch] = useState('');
+
+  async function load() {
+    setErr(null);
+    try {
+      const rows = await dbSelect<ContactMessage>('contact_messages', 'deleted_at=is.null&order=created_at.desc', accessToken);
+      setItems(rows);
+    } catch (e) { setErr(String(e)); }
+  }
+  useEffect(() => { load(); }, [accessToken]);
+
+  async function patch(id: string, body: Partial<ContactMessage>) {
+    setItems((prev) => prev?.map((r) => (r.id === id ? { ...r, ...body } : r)) ?? prev);
+    try { await dbUpdate('contact_messages', `id=eq.${id}`, body, accessToken); }
+    catch (e) { setErr(String(e)); load(); }
+  }
+  async function softDelete(id: string) {
+    if (!confirm('¿Eliminar este mensaje?')) return;
+    setItems((prev) => prev?.filter((r) => r.id !== id) ?? prev);
+    try { await dbUpdate('contact_messages', `id=eq.${id}`, { deleted_at: new Date().toISOString() }, accessToken); }
+    catch (e) { setErr(String(e)); load(); }
+  }
+
+  const filtered = useMemo(() => {
+    if (!items) return null;
+    const q = search.trim().toLowerCase();
+    return items.filter((c) => {
+      if (statusFilter !== 'all' && c.status !== statusFilter) return false;
+      if (reasonFilter !== 'all' && c.reason !== reasonFilter) return false;
+      if (q) {
+        const hay = `${c.name} ${c.email} ${c.phone} ${c.message} ${c.admin_notes}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [items, statusFilter, reasonFilter, search]);
+
+  const counts = useMemo(() => {
+    if (!items) return { all: 0, new: 0, in_progress: 0, responded: 0, archived: 0 };
+    return items.reduce(
+      (acc, c) => { acc.all++; acc[c.status]++; return acc; },
+      { all: 0, new: 0, in_progress: 0, responded: 0, archived: 0 } as Record<FilterStatus, number>,
+    );
+  }, [items]);
+
+  function exportCsv() {
+    if (!filtered || filtered.length === 0) return;
+    const cols: (keyof ContactMessage)[] = ['created_at','name','email','phone','reason','message','status','is_starred','needs_follow_up','admin_notes'];
+    const esc = (v: unknown) => v == null ? '' : (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : String(v));
+    const rows = [cols.join(','), ...filtered.map((r) => cols.map((c) => esc(r[c])).join(','))];
+    downloadBlob(rows.join('\n'), `contactos-${new Date().toISOString().slice(0,10)}.csv`, 'text/csv');
+  }
+  function exportPdf() {
+    openPrintWindow(renderContactsPrintHtml(filtered ?? [], { from: '', to: '', status: statusFilter, reason: reasonFilter }));
+  }
+
+  if (err) return <ErrorBox text={err} />;
+  if (items === null) return <p className="text-gold-300/60">Cargando contactos…</p>;
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+        <div>
+          <h2 className="font-serif text-2xl text-gold-300">Contactos generales</h2>
+          <p className="text-sm text-gray-400">{counts.all} en total · {counts.new} nuevos · {counts.in_progress} en proceso</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={exportCsv} disabled={!filtered || filtered.length === 0} className="px-3 py-1.5 text-xs border border-gold-400/30 text-gold-300 rounded-lg hover:bg-gold-400/10 transition disabled:opacity-40">⬇ CSV</button>
+          <button onClick={exportPdf} disabled={!filtered || filtered.length === 0} className="px-3 py-1.5 text-xs border border-gold-400/30 text-gold-300 rounded-lg hover:bg-gold-400/10 transition disabled:opacity-40">📄 PDF</button>
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-navy-800/30 border border-gold-400/10 p-3 sm:p-4 mb-5 space-y-3">
+        <div className="flex flex-wrap gap-1.5">
+          <FilterPill active={statusFilter === 'all'}         onClick={() => setStatusFilter('all')}>Todos · {counts.all}</FilterPill>
+          <FilterPill active={statusFilter === 'new'}         onClick={() => setStatusFilter('new')}>Nuevos · {counts.new}</FilterPill>
+          <FilterPill active={statusFilter === 'in_progress'} onClick={() => setStatusFilter('in_progress')}>En proceso · {counts.in_progress}</FilterPill>
+          <FilterPill active={statusFilter === 'responded'}   onClick={() => setStatusFilter('responded')}>Respondidos · {counts.responded}</FilterPill>
+          <FilterPill active={statusFilter === 'archived'}    onClick={() => setStatusFilter('archived')}>Archivados · {counts.archived}</FilterPill>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <select value={reasonFilter} onChange={(e) => setReasonFilter(e.target.value as 'all' | ContactReason)}
+            className="bg-navy-950/60 border border-gold-400/20 rounded-lg px-3 py-1.5 text-sm text-gray-100">
+            <option value="all">Todas las razones</option>
+            <option value="pastoral">Contacto pastoral</option>
+            <option value="visit">Quiere visitar</option>
+            <option value="volunteer">Servicio / voluntariado</option>
+            <option value="general">Pregunta general</option>
+            <option value="other">Otra</option>
+          </select>
+          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, correo, mensaje…"
+            className="flex-1 min-w-[180px] bg-navy-950/60 border border-gold-400/20 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-gold-400" />
+        </div>
+      </div>
+
+      {filtered && filtered.length === 0 ? (
+        <div className="text-center py-16 bg-navy-800/30 border border-gold-400/10 rounded-xl">
+          <div className="text-5xl mb-3">📭</div>
+          <p className="text-gray-300">No hay contactos que coincidan.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered?.map((c) => (
+            <ContactRow
+              key={c.id}
+              c={c}
+              expanded={expandedId === c.id}
+              onToggle={() => {
+                const next = expandedId === c.id ? null : c.id;
+                setExpandedId(next);
+                if (next && !c.read_at) patch(c.id, { read_at: new Date().toISOString() });
+              }}
+              onPatch={(body) => patch(c.id, body)}
+              onDelete={() => softDelete(c.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContactRow({ c, expanded, onToggle, onPatch, onDelete }: {
+  c: ContactMessage;
+  expanded: boolean;
+  onToggle: () => void;
+  onPatch: (body: Partial<ContactMessage>) => void;
+  onDelete: () => void;
+}) {
+  const dateStr = new Date(c.created_at).toLocaleString('es-US', { dateStyle: 'medium', timeStyle: 'short' });
+  const isUnread = !c.read_at;
+  const [notes, setNotes] = useState(c.admin_notes);
+  useEffect(() => { setNotes(c.admin_notes); }, [c.admin_notes]);
+
+  const reasonLabels: Record<ContactReason, string> = {
+    pastoral: 'Contacto pastoral',
+    visit: 'Visita',
+    volunteer: 'Servicio',
+    general: 'General',
+    other: 'Otra',
+  };
+
+  return (
+    <article className={`rounded-xl border transition ${isUnread ? 'bg-gold-400/[0.04] border-gold-400/40' : 'bg-navy-800/40 border-gold-400/15'}`}>
+      <div className="flex items-stretch">
+        <button onClick={onToggle} className="flex-1 min-w-0 p-4 sm:p-5 flex items-start gap-3 hover:bg-gold-400/5 transition text-left">
+          {isUnread && <span className="mt-2 inline-block w-2 h-2 rounded-full bg-gold-400 flex-shrink-0" />}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <strong className={`text-base sm:text-lg ${isUnread ? 'text-gold-200' : 'text-gold-300'}`}>{c.name}</strong>
+              <StatusPill status={c.status} />
+              <Badge color="blue">{reasonLabels[c.reason]}</Badge>
+              {c.needs_follow_up && <Badge color="amber">🔔 seguimiento</Badge>}
+            </div>
+            <p className="text-gray-400 text-xs sm:text-sm mt-1">{dateStr}</p>
+            <p className="text-gray-300 text-sm mt-1 truncate">{[c.email, c.phone].filter(Boolean).join(' · ') || '—'}</p>
+            <p className="text-gray-200 text-sm mt-1 line-clamp-1">{c.message}</p>
+          </div>
+          <span className={`text-gold-400 text-xl self-center transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
+        </button>
+        <button onClick={() => onPatch({ is_starred: !c.is_starred })}
+          aria-label={c.is_starred ? 'Quitar destacado' : 'Destacar'}
+          className="px-3 sm:px-4 border-l border-gold-400/10 hover:bg-gold-400/5 transition text-xl">
+          <span className={c.is_starred ? 'text-gold-300' : 'text-gold-400/30'}>★</span>
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="px-4 sm:px-5 pb-5 border-t border-gold-400/10 pt-4 space-y-5 text-sm">
+          <div className="flex flex-wrap gap-2">
+            <StatusSelect value={c.status} onChange={(status) => onPatch({
+              status,
+              responded_at: status === 'responded' && !c.responded_at ? new Date().toISOString() : c.responded_at,
+            })} />
+            <ActionBtn onClick={() => onPatch({ read_at: c.read_at ? null : new Date().toISOString() })}>
+              {c.read_at ? '☑ No leído' : '✓ Leído'}
+            </ActionBtn>
+            <ActionBtn onClick={() => onPatch({ status: 'archived' })}>📦 Archivar</ActionBtn>
+            <ActionBtn onClick={() => onPatch({
+              needs_follow_up: !c.needs_follow_up,
+              follow_up_at: !c.needs_follow_up && !c.follow_up_at ? new Date(Date.now() + 7 * 86400_000).toISOString() : c.follow_up_at,
+            })}>
+              {c.needs_follow_up ? '🔕 Quitar seguimiento' : '🔔 Seguimiento'}
+            </ActionBtn>
+            <ActionBtn onClick={onDelete} danger>🗑 Eliminar</ActionBtn>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+            <Detail label="Correo"   value={c.email || '—'} href={c.email ? `mailto:${c.email}` : undefined} />
+            <Detail label="Teléfono" value={c.phone || '—'} href={c.phone ? `tel:${c.phone}` : undefined} />
+            <Detail label="Motivo"   value={reasonLabels[c.reason]} />
+            <Detail label="Recibido" value={dateStr} />
+            <div className="sm:col-span-2">
+              <p className="text-xs uppercase tracking-wider text-gold-400/70 mb-1.5">Mensaje</p>
+              <p className="text-gray-100 leading-relaxed bg-navy-950/50 rounded-lg p-3 whitespace-pre-wrap">{c.message}</p>
+            </div>
+            <div className="sm:col-span-2">
+              <p className="text-xs uppercase tracking-wider text-gold-400/70 mb-1.5">Notas internas</p>
+              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={() => { if (notes !== c.admin_notes) onPatch({ admin_notes: notes }); }}
+                rows={3} placeholder="Notas privadas…"
+                className="w-full bg-navy-950/60 border border-gold-400/20 rounded-lg px-3 py-2 text-gray-100 text-sm placeholder-gray-500 focus:outline-none focus:border-gold-400" />
+            </div>
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
+// Shared print helpers
+function downloadBlob(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function openPrintWindow(html: string) {
+  const w = window.open('', '_blank', 'noopener,width=820,height=900');
+  if (!w) { alert('Por favor permite ventanas emergentes para imprimir.'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => { try { w.focus(); w.print(); } catch (e) { /* ignore */ } }, 500);
+}
+
+function printHtmlShell(title: string, body: string): string {
+  const printed = new Date().toLocaleString('es-US', { dateStyle: 'long', timeStyle: 'short' });
+  return `<!doctype html><html lang="es"><head><meta charset="UTF-8"><title>${title} — IBB</title>
+<style>
+  body { font-family: 'Cormorant Garamond', Georgia, serif; color: #1a1a1a; background: white; max-width: 760px; margin: 0 auto; padding: 36px 44px 80px; }
+  .head { display: flex; align-items: center; gap: 18px; }
+  .head h1 { font-size: 24px; margin: 0; }
+  .head p  { font-size: 12px; color: #555; margin-top: 2px; font-family: 'Inter', sans-serif; }
+  .rule { height: 2px; background: linear-gradient(90deg, transparent, #c9a84c, transparent); margin: 16px 0 22px; }
+  .meta { text-align: center; margin-bottom: 22px; }
+  .meta h2 { font-size: 26px; margin: 0; font-weight: 500; }
+  .meta p { font-size: 11px; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.15em; font-family: 'Inter', sans-serif; }
+  table { width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; font-size: 12px; vertical-align: top; }
+  th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: #666; }
+  .item { padding: 14px 0; border-bottom: 1px solid #eee; page-break-inside: avoid; }
+  .item-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+  .item-name { font-weight: 600; font-size: 15px; font-family: 'Inter', sans-serif; }
+  .item-date { font-size: 11px; color: #888; font-family: 'Inter', sans-serif; }
+  .item-meta { font-size: 11px; color: #555; margin-bottom: 6px; font-family: 'Inter', sans-serif; }
+  .item-body { font-size: 14px; color: #222; line-height: 1.55; white-space: pre-wrap; }
+  @media print { @page { margin: 18mm; } body { padding: 0; max-width: none; } }
+</style></head><body>
+  <header class="head">
+    <img src="/assets/logo.png" alt="" style="width:64px;height:64px;object-fit:contain;">
+    <div>
+      <h1>Iglesia Bautista Bíblica</h1>
+      <p>1273 Lamont Ave NW · Grand Rapids, MI 49504 · (616) 287-4503</p>
+    </div>
+  </header>
+  <div class="rule"></div>
+  <section class="meta">
+    <h2>${title}</h2>
+    <p>Impreso: ${printed}</p>
+  </section>
+  ${body}
+</body></html>`;
+}
+
+function renderContactsPrintHtml(rows: ContactMessage[], _f: { from: string; to: string; status: string; reason: string }): string {
+  if (rows.length === 0) {
+    return printHtmlShell('Contactos generales', '<p style="text-align:center;color:#888;padding:40px 0;font-style:italic;">No hay contactos.</p>');
+  }
+  const reasonLabels: Record<string, string> = {
+    pastoral: 'Contacto pastoral', visit: 'Visita', volunteer: 'Servicio',
+    general: 'General', other: 'Otra',
+  };
+  const items = rows.map((c) => `
+    <div class="item">
+      <div class="item-head">
+        <span class="item-name">${escHtml(c.name)}</span>
+        <span class="item-date">${new Date(c.created_at).toLocaleString('es-US', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+      </div>
+      <div class="item-meta">
+        ${escHtml(reasonLabels[c.reason] || c.reason)} · ${escHtml(c.email || '—')} · ${escHtml(c.phone || '—')}
+      </div>
+      <div class="item-body">${escHtml(c.message)}</div>
+    </div>
+  `).join('');
+  return printHtmlShell('Contactos generales', items);
+}
+
+function renderSubmissionsPrintHtml(rows: Submission[]): string {
+  if (rows.length === 0) {
+    return printHtmlShell('Mensajes recibidos', '<p style="text-align:center;color:#888;padding:40px 0;font-style:italic;">No hay mensajes.</p>');
+  }
+  const items = rows.map((s) => {
+    const interests: string[] = [];
+    if (s.wants_pastor_contact) interests.push('Contacto del pastor');
+    if (s.wants_attend_service) interests.push('Asistir al servicio');
+    if (s.wants_more_info)      interests.push('Más información');
+    if (s.wants_prayer)         interests.push('Petición de oración');
+    const prof = s.profession_of_faith === 'yes' ? '¡Profesión de fe!'
+               : s.profession_of_faith === 'no'  ? 'No, todavía no'
+               : s.profession_of_faith === 'more-info' ? 'Más información' : '—';
+    return `
+    <div class="item">
+      <div class="item-head">
+        <span class="item-name">${escHtml(s.first_name)} ${escHtml(s.last_name)}</span>
+        <span class="item-date">${new Date(s.created_at).toLocaleString('es-US', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+      </div>
+      <div class="item-meta">
+        ${escHtml(prof)} · ${escHtml(s.email || '—')} · ${escHtml(s.phone || '—')}
+        ${interests.length ? '<br><span style="color:#888;">Intereses:</span> ' + escHtml(interests.join(', ')) : ''}
+      </div>
+      ${s.prayer_request ? `<div class="item-body"><em>Petición:</em> ${escHtml(s.prayer_request)}</div>` : ''}
+    </div>`;
+  }).join('');
+  return printHtmlShell('Mensajes recibidos', items);
+}
+
+function escHtml(s: string): string {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c] as string));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
