@@ -95,8 +95,17 @@ create trigger prayer_requests_touch
   for each row execute function public.touch_updated_at();
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 3. RLS
+-- 3. Grants + RLS
+--
+-- Important: anon must NOT have SELECT (would let anyone read all prayers).
+-- For anon INSERT to succeed, the client must use Prefer: return=minimal
+-- so PostgREST doesn't run a hidden SELECT for the RETURNING clause.
+-- Our src/supabase.ts dbInsert() does that.
 -- ────────────────────────────────────────────────────────────────────────────
+
+revoke all   on public.prayer_requests from anon;
+grant  insert on public.prayer_requests to   anon;
+grant  select, insert, update, delete on public.prayer_requests to authenticated;
 
 alter table public.prayer_requests enable row level security;
 

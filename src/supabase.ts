@@ -72,18 +72,22 @@ export async function dbSelect<T = unknown>(table: string, query = '', accessTok
   return res.json();
 }
 
-export async function dbInsert<T = unknown>(table: string, row: object, accessToken?: string): Promise<T> {
+// INSERT with Prefer: return=minimal — Postgres' INSERT RETURNING requires
+// SELECT on the table, which anonymous form submitters don't have (and
+// shouldn't, otherwise they could read everyone else's submissions). With
+// `minimal` the server doesn't run a SELECT, so anon INSERT works under
+// the standard "anon INSERT-only, authenticated full" grant model.
+// No caller currently consumes dbInsert's return value, so this is safe.
+export async function dbInsert(table: string, row: object, accessToken?: string): Promise<void> {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
     method: 'POST',
-    headers: restHeaders(accessToken),
+    headers: { ...restHeaders(accessToken), Prefer: 'return=minimal' },
     body: JSON.stringify(row),
   });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`${table} insert: HTTP ${res.status} — ${err}`);
   }
-  const json = await res.json();
-  return Array.isArray(json) ? json[0] : json;
 }
 
 export async function dbUpdate<T = unknown>(table: string, query: string, patch: object, accessToken: string): Promise<T[]> {

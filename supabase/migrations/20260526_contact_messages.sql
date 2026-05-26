@@ -52,7 +52,14 @@ create trigger contact_messages_touch
   before update on public.contact_messages
   for each row execute function public.touch_updated_at();
 
--- RLS
+-- Grants + RLS.
+-- anon gets INSERT only — never SELECT — so reading is gated to admins.
+-- Client uses Prefer: return=minimal so INSERT...RETURNING doesn't fire
+-- and the missing SELECT grant is harmless.
+revoke all   on public.contact_messages from anon;
+grant  insert on public.contact_messages to   anon;
+grant  select, insert, update, delete on public.contact_messages to authenticated;
+
 alter table public.contact_messages enable row level security;
 
 drop policy if exists "public can submit contact"  on public.contact_messages;
